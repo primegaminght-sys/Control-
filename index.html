@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ht">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prisme Streamer</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #121212;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #status {
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background: #333;
+        }
+        button {
+            padding: 15px 30px;
+            font-size: 18px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        button:active {
+            background-color: #0056b3;
+        }
+        video {
+            width: 80%;
+            max-width: 400px;
+            margin-top: 20px;
+            border: 2px solid #007bff;
+            border-radius: 10px;
+            display: none; /* L ap parèt sèlman lè streaming lan kòmanse */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="status">Estati: Koneksyon ak PeerJS...</div>
+    
+    <button id="startBtn">KÒMANSE PATAJE EKRAN</button>
+
+    <video id="preview" autoplay playsinline muted></video>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const videoElem = document.getElementById('preview');
+
+        // 1. Inisyalize PeerJS (Ou ka chanje 'prisme-device-1' pa yon ID o aza)
+        const peer = new Peer('prisme-device-1'); 
+
+        peer.on('open', (id) => {
+            statusDiv.innerHTML = "Konekte! ID ou se: <b>" + id + "</b>";
+            statusDiv.style.color = "#4CAF50";
+        });
+
+        peer.on('error', (err) => {
+            statusDiv.innerText = "Erè PeerJS: " + err.type;
+            statusDiv.style.color = "#ff5252";
+        });
+
+        // 2. Fonksyon pou kaptire ekran an
+        startBtn.onclick = async () => {
+            try {
+                statusDiv.innerText = "Ap tann pèmisyon Android...";
+                
+                // Sa ap deklanche popup "Start Now" sou Android a
+                const stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { cursor: "always" },
+                    audio: false
+                });
+
+                // Afiche yon ti preview nan app a
+                videoElem.srcObject = stream;
+                videoElem.style.display = "block";
+                startBtn.style.display = "none";
+                statusDiv.innerText = "Pataje an dirèk aktive!";
+
+                // 3. Prepare pou lè "Receiver" a rele
+                peer.on('call', (call) => {
+                    statusDiv.innerText = "Moun lan ap gade kounye a...";
+                    call.answer(stream); // Voye kouran videyo a bay moun k ap gade a
+                });
+
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerText = "Erè: Moun lan anile pèmisyon an.";
+                statusDiv.style.color = "#ff5252";
+            }
+        };
+    </script>
+</body>
+</html>
