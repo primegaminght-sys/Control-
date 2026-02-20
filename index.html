@@ -9,8 +9,8 @@
         .container { max-width: 800px; margin: auto; }
         input { padding: 15px; width: 200px; border-radius: 5px; border: none; font-size: 20px; text-align: center; }
         button { padding: 15px 30px; background: #00D1FF; border: none; border-radius: 5px; color: #101820; font-weight: bold; cursor: pointer; font-size: 18px; }
-        video { width: 100%; max-width: 600px; border: 2px solid #00D1FF; margin-top: 20px; background: #000; }
-        .status { color: #4CAF50; margin: 10px; }
+        video { width: 100%; max-width: 600px; border: 2px solid #00D1FF; margin-top: 20px; background: #000; height: 400px; }
+        .status { color: #4CAF50; margin: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -31,7 +31,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
 
     <script>
-        // Konfigirasyon ki soti nan google-services.json ou a
         const firebaseConfig = {
             apiKey: "AIzaSyB-rX6hmOcdeSiN6uXVntZLvX9HdXyIeek",
             databaseURL: "https://control-11e23-default-rtdb.firebaseio.com",
@@ -51,11 +50,15 @@
             
             statusDiv.innerText = "Y ap chèche kòd la...";
 
-            // 1. Jwenn CHILD_ID a via kòd la
             database.ref('active_sessions/' + code).once('value', async (snapshot) => {
                 if (snapshot.exists()) {
                     const childId = snapshot.val();
                     statusDiv.innerText = "Konekte ak: " + childId;
+                    
+                    // Netwaye vye kòmand anvan nou kòmanse
+                    await database.ref('commands/' + childId).remove();
+                    await database.ref('streams/' + childId).remove();
+                    
                     startWebRTC(childId);
                 } else {
                     statusDiv.innerText = "Kòd pa bon!";
@@ -64,37 +67,59 @@
         }
 
         async function startWebRTC(childId) {
-            const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+            const configuration = { 
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] 
+            };
             peerConnection = new RTCPeerConnection(configuration);
 
-            // Resevwa videyo a
+            // 1. Resevwa stream videyo a
             peerConnection.ontrack = event => {
+                console.log("Stream resevwa!");
                 remoteVideo.srcObject = event.streams[0];
             };
 
-            // Jere ICE Candidates
+            // 2. Voye ICE Candidates pa nou bay telefòn nan
             peerConnection.onicecandidate = event => {
                 if (event.candidate) {
                     database.ref('streams/' + childId + '/ice_candidates_parent').push(event.candidate.toJSON());
                 }
             };
 
-            // 2. Kreye Offer
-            const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
+            // 3. KOUTE ICE Candidates ki soti nan telefòn nan (Sa ki te manke a)
+            database.ref('streams/' + childId + '/ice_candidates_child').on('child_added', snapshot => {
+                if (snapshot.exists()) {
+                    const candidateData = snapshot.val();
+                    // Si se yon string senp n ap resevwa soti nan Android
+                    const candidate = new RTCIceCandidate({
+                        candidate: candidateData,
+                        sdpMid: "0",
+                        sdpMLineIndex: 0
+                    });
+                    peerConnection.addIceCandidate(candidate).catch(e => console.error("Erè ICE:", e));
+                }
+            });
+
+            // 4. Kreye Offer
+            const offer = await peerConnection.createOffer({ 
+                offerToReceiveVideo: true,
+                offerToReceiveAudio: false 
+            });
             await peerConnection.setLocalDescription(offer);
 
-            // 3. Voye Offer bay timoun nan nan node "commands"
+            // 5. Voye Offer bay telefòn nan
             database.ref('commands/' + childId).set({
                 action: "start_screen_share",
                 status: "pending",
                 sdp_offer: offer.sdp
             });
 
-            // 4. Koute "sdp_answer" timoun nan
+            // 6. Koute Answer telefòn nan
             database.ref('streams/' + childId + '/sdp_answer').on('value', async (snapshot) => {
-                if (snapshot.exists()) {
-                    const answer = new RTCSessionDescription({ type: 'answer', sdp: snapshot.val() });
+                if (snapshot.exists() && !peerConnection.remoteDescription) {
+                    const answerSdp = snapshot.val();
+                    const answer = new RTCSessionDescription({ type: 'answer', sdp: answerSdp });
                     await peerConnection.setRemoteDescription(answer);
+                    document.getElementById('status').innerText = "Streaming an dirèk...";
                 }
             });
         }
