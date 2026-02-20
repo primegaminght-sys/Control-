@@ -3,104 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prisme Streamer</title>
-    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <title>Prisme Control Panel</title>
     <style>
-        body {
-            font-family: sans-serif;
-            background-color: #121212;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-        }
-        #status {
-            margin-bottom: 20px;
-            padding: 10px;
-            border-radius: 5px;
-            background: #333;
-        }
-        button {
-            padding: 15px 30px;
-            font-size: 18px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-        button:active {
-            background-color: #0056b3;
-        }
-        video {
-            width: 80%;
-            max-width: 400px;
-            margin-top: 20px;
-            border: 2px solid #007bff;
-            border-radius: 10px;
-            display: none; /* L ap parèt sèlman lè streaming lan kòmanse */
-        }
+        body { font-family: sans-serif; background: #101820; color: white; text-align: center; padding: 20px; }
+        .container { max-width: 800px; margin: auto; }
+        input { padding: 15px; width: 200px; border-radius: 5px; border: none; font-size: 20px; text-align: center; }
+        button { padding: 15px 30px; background: #00D1FF; border: none; border-radius: 5px; color: #101820; font-weight: bold; cursor: pointer; font-size: 18px; }
+        video { width: 100%; max-width: 600px; border: 2px solid #00D1FF; margin-top: 20px; background: #000; }
+        .status { color: #4CAF50; margin: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="status">Estati: Koneksyon ak PeerJS...</div>
-    
-    <button id="startBtn">KÒMANSE PATAJE EKRAN</button>
+    <div class="container">
+        <h1>PRISME PARENT</h1>
+        <p>Antre kòd 6 chif ki sou telefòn timoun nan:</p>
+        
+        <input type="text" id="pairCode" placeholder="000000" maxlength="6">
+        <button onclick="connectToChild()">Konekte</button>
 
-    <video id="preview" autoplay playsinline muted></video>
+        <div id="status" class="status"></div>
+
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
 
     <script>
-        const statusDiv = document.getElementById('status');
-        const startBtn = document.getElementById('startBtn');
-        const videoElem = document.getElementById('preview');
-
-        // 1. Inisyalize PeerJS (Ou ka chanje 'prisme-device-1' pa yon ID o aza)
-        const peer = new Peer('prisme-device-1'); 
-
-        peer.on('open', (id) => {
-            statusDiv.innerHTML = "Konekte! ID ou se: <b>" + id + "</b>";
-            statusDiv.style.color = "#4CAF50";
-        });
-
-        peer.on('error', (err) => {
-            statusDiv.innerText = "Erè PeerJS: " + err.type;
-            statusDiv.style.color = "#ff5252";
-        });
-
-        // 2. Fonksyon pou kaptire ekran an
-        startBtn.onclick = async () => {
-            try {
-                statusDiv.innerText = "Ap tann pèmisyon Android...";
-                
-                // Sa ap deklanche popup "Start Now" sou Android a
-                const stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { cursor: "always" },
-                    audio: false
-                });
-
-                // Afiche yon ti preview nan app a
-                videoElem.srcObject = stream;
-                videoElem.style.display = "block";
-                startBtn.style.display = "none";
-                statusDiv.innerText = "Pataje an dirèk aktive!";
-
-                // 3. Prepare pou lè "Receiver" a rele
-                peer.on('call', (call) => {
-                    statusDiv.innerText = "Moun lan ap gade kounye a...";
-                    call.answer(stream); // Voye kouran videyo a bay moun k ap gade a
-                });
-
-            } catch (err) {
-                console.error(err);
-                statusDiv.innerText = "Erè: Moun lan anile pèmisyon an.";
-                statusDiv.style.color = "#ff5252";
-            }
+        // Konfigirasyon ki soti nan google-services.json ou a
+        const firebaseConfig = {
+            apiKey: "AIzaSyB-rX6hmOcdeSiN6uXVntZLvX9HdXyIeek",
+            databaseURL: "https://control-11e23-default-rtdb.firebaseio.com",
+            projectId: "control-11e23",
+            storageBucket: "control-11e23.firebasestorage.app",
         };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        let peerConnection;
+        const remoteVideo = document.getElementById('remoteVideo');
+
+        async function connectToChild() {
+            const code = document.getElementById('pairCode').value;
+            const statusDiv = document.getElementById('status');
+            
+            statusDiv.innerText = "Y ap chèche kòd la...";
+
+            // 1. Jwenn CHILD_ID a via kòd la
+            database.ref('active_sessions/' + code).once('value', async (snapshot) => {
+                if (snapshot.exists()) {
+                    const childId = snapshot.val();
+                    statusDiv.innerText = "Konekte ak: " + childId;
+                    startWebRTC(childId);
+                } else {
+                    statusDiv.innerText = "Kòd pa bon!";
+                }
+            });
+        }
+
+        async function startWebRTC(childId) {
+            const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+            peerConnection = new RTCPeerConnection(configuration);
+
+            // Resevwa videyo a
+            peerConnection.ontrack = event => {
+                remoteVideo.srcObject = event.streams[0];
+            };
+
+            // Jere ICE Candidates
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    database.ref('streams/' + childId + '/ice_candidates_parent').push(event.candidate.toJSON());
+                }
+            };
+
+            // 2. Kreye Offer
+            const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
+            await peerConnection.setLocalDescription(offer);
+
+            // 3. Voye Offer bay timoun nan nan node "commands"
+            database.ref('commands/' + childId).set({
+                action: "start_screen_share",
+                status: "pending",
+                sdp_offer: offer.sdp
+            });
+
+            // 4. Koute "sdp_answer" timoun nan
+            database.ref('streams/' + childId + '/sdp_answer').on('value', async (snapshot) => {
+                if (snapshot.exists()) {
+                    const answer = new RTCSessionDescription({ type: 'answer', sdp: snapshot.val() });
+                    await peerConnection.setRemoteDescription(answer);
+                }
+            });
+        }
     </script>
 </body>
 </html>
